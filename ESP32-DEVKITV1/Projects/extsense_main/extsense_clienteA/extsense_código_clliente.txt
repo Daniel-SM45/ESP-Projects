@@ -1,0 +1,159 @@
+#include <SPI.h>
+#include <ESP8266WiFi.h>          // The Basic Function Of The ESP NODEMCU
+//------------------------------------------------------------------------------------
+// Definindo os pinos I/O (Configuração)
+//------------------------------------------------------------------------------------
+#define   LedBoard   2            //LED do módulo WIFI                 
+#define   SOS_BUTTON 16           //D0 = (GPIO16) - Botão NodeMCU 
+#define   SOUND_VELOCITY 0.034    //343 m/s: Corresponde a 1234,8 Km/h em 20 Graus Celsius
+
+const int button = 5;             //D1 = (GPIO5)  Botão liga e desliga  
+const int vibraCall = 13;         //D7 = (GPIO13) Motor de vibração    
+const int led_on = 4;             //D2 = (GPIO4)  Led indicador de ativação do dispositivo
+
+const int sensTrigger = 14;       //D5 = (GPIO5) Pino do sensor TRIGGER (TRANSMISSOR DE FREQUENCIAS PARA OS OBJETOS)
+const int sensEcho = 12;          //D6 = (GPIO4) Pino do sensor ECHO (RECEPTOR QUE RECEBE O PULSO DAS FREQUENCIAS RETORNADAS DO OBJETO )
+
+long  pulse_signal;               //VARIAVEL QUE ARMAZENARÁ O TEMPO DE PERCURSO DAS ONDAS SONORAS DO SENSOR, 
+                                  //QUE É O TEMPO DECORRIDO DESDE O MOMENTO DA TRANSMISSÃO E RECEPÇÃO DO PULSO.
+float distance;                   //VARIÁVEL QUE ARMAZENA OS VALORES DA DISTANCIA DOS OBJETOS
+float tmp = 50;
+
+int  turn_on_off  = 0;            //VARIÁVEL USADA PARA A LÓGICA DE LIGA E DESLIGA, DE UM MESMO BOTÃO
+
+long calc_distance(long pulse_calcCm); //RÉPLICA DA FUNÇÃO QUE REALIZA TODO O CALCULO DA DISTÂNCIA DO OBJETO 
+
+//------------------------------------------------------------------------------------
+// Váriaveis de autenticação da rede WIFI
+//------------------------------------------------------------------------------------
+char ssid[] = "Casa_01";                               //SSID (Nome) DO ESP SERVIDOR 
+char pass[] = "fvml1234";                              //A SENHA DE AUTENTICAÇÃO PARA A CONEXÃO COM O SERVIDOR
+  
+//------------------------------------------------------------------------------------
+// WIFI Module Mode & IP
+//------------------------------------------------------------------------------------
+IPAddress server(192,168,10,40);                      //INDEREÇO IP FIXO DO SERVIDOR
+WiFiClient client;
+
+//====================================================================================
+// Configuração dos pinos , para cada componente instalado 
+//====================================================================================
+void setup() {
+  
+  pinMode(vibraCall, OUTPUT);
+  pinMode(LedBoard, OUTPUT);                           // Initiate the Onboard Led Output
+  pinMode(led_on, OUTPUT);
+  pinMode(SOS_BUTTON,INPUT);                           // Initiate the ESP Pin: INPUT_PULLUP - Its mean that you no need put a resistor
+  pinMode(button,INPUT);
+  
+  pinMode(sensTrigger,OUTPUT);
+  pinMode(sensEcho,INPUT);
+  
+  digitalWrite(LedBoard, HIGH);                        // Initiate the Onboard Led Off
+  Serial.begin(115200);                                // only for debug
+  Serial.println("");
+  Serial.print("Aguardando conexao: ");
+  
+  WiFi.begin(ssid, pass);                              // connects to the WiFi router
+    while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    digitalWrite(LedBoard, LOW);
+    delay(250);
+    digitalWrite(LedBoard, HIGH);
+    delay(250);
+    }
+  digitalWrite(LedBoard, HIGH);
+  
+//------------------------------------------------------------------------------------
+// Parametros de REDE - Apenas para depuração 
+//------------------------------------------------------------------------------------
+  Serial.println("");
+  Serial.println("Cliente Conectado: extsense device");
+  Serial.print("IP: ");       Serial.println(WiFi.softAPIP());
+  Serial.print("SSID: ");     Serial.println(WiFi.SSID());
+  Serial.print("Sinal: ");    Serial.println(WiFi.RSSI());
+}
+//====================================================================================
+void loop() {
+    
+    Extsense_main();        //FUNÇÃO QUE SE REFERE AO FUNCIONAMENTO DO DISPOSITIVO
+    ContinuousConnection(); //FUNÇÃO QUE SE REFERE AO ESTADO DE CONEXÃO DO DISPOSITIVO
+}
+//====================================================================================
+
+ void ContinuousConnection(){
+  client.connect(server, 80);                                  //PORTA DE CONEXÃO COM O SERVIDOR
+  ReadButton();                                                //REALIZA A LEITURA DO BOTÃO DO TRANSMISSOR 
+//====================================================================================
+void ReadButton() {
+  
+  int reading = digitalRead( SOS_BUTTON );                     //LÊ O ESTADO DO BOTÃO
+  
+  if (reading == HIGH) {                                       //SE O BOTÃO FOR PRESSIONADO:
+    for(int vibfeedback = 1; vibfeedback <= 3; vibfeedback++){ //LOOP DE REPETIÇÃO PRÉ-DEFINIDO SOBRE QUANTAS VEZES O MOTOR DE VIBRAÇÃO DEVE SER ATIVADO E DESTIVADO 
+    digitalWrite(vibraCall,HIGH);
+    delay(800);
+    digitalWrite(vibraCall,LOW);
+    delay(800);
+    }
+    client.print("I am Transmitter\r");                        //Send messege "I am Transmitter" To Server
+    delay(200);
+    }else{
+    ClientContinue(); 
+    }
+}
+//====================================================================================
+void ClientContinue(){
+  client.println("Transmmiter");                      // ENVIA A MENSAGEM PARA O SERVIDOR
+  String answer = client.readStringUntil('\r');       // RECEBEA RESPOSTA DO SERVIDOR
+  client.flush();
+}
+void Extsense_main(){                                 //FUNÇÃO PRINCIPAL DE TRABALHO DO SENSOR 
+  
+     buttonState = digitalRead(button);
+    
+     if (digitalRead(button) == HIGH){                //SE O BOTÃO FOR PRESSIONADO
+     delay(400);
+     Serial.println("Dispositivo ativado!");          //IMPRIME NA TELA QUE O DISPOSITIVO FOI ATIVADO
+     
+     if(turn_on_off == HIGH){                         //CONDIÇÃO QUE MANTEM O ESTADO DO BOTÃO ATIVO CASO PRESSIONADO UM VEZ,
+     turn_on_off = LOW; 
+     Serial.println("Dispositivo desativado!");       //E DESATIVADO CASO SEJA PRESSIONADO NOVAMENTE
+     digitalWrite(led_on,LOW);
+     }
+     else{
+     turn_on_off = HIGH;
+     }
+    }
+   if(turn_on_off == HIGH){                           //CONDIÇÃO QUE VERIFICA SE O ESTADO DO BOTÃO É ALTO
+    
+   digitalWrite(led_on,HIGH);                         //ATIVA O LED INDICADOR DE ATIVAÇÃO DO DISPOSITIVO
+   
+   //INICIA O PINO TRIGGER COMO BAIXO POR 5 MICROSSEGUNDO(LIMPEZA DE VALORES INICIAIS DE LEITURA)
+   digitalWrite(sensTrigger,LOW);                  
+   delayMicroseconds(5);
+   //ATIVA O PINO TRIGGER POR 10 MICROSEGUNDOS
+   digitalWrite(sensTrigger,HIGH);                  
+   delayMicroseconds(10);
+   digitalWrite(sensTrigger,LOW);
+
+   pulse_signal = pulseIn(sensEcho,HIGH);              //USAMOS A FUNÇÃO pulseIn() PARA OBTER O TEMPO DE VIAGEM DA ONDA SONORA
+   distance   = calc_distanceCm(pulse_signal);
+
+
+   int freqValue  =  pulse_signal;
+   int frequency  = map(distance,0,275.0,0,150.0);     //REALIZA O MAPEAMENTO DOS VALORES ARMAZENADOS PELA VARIÁVEL "DISTANCE" PARA AUMENTAR A INTENCIDADE DE VIBRAÇÃO DO VIBRACALL
+   float vibVolt  = distance * (150.0/275.0);          //REALIZA O CALCULO DO VALOR MINIMO DA DISTANCIA E DO VALOR MÁXIMO DA DISTANCIA PARA O MAPEAMENTO
+   tone(vibraCall,frequency ,tmp);
+   delay(10);
+   }
+   digitalWrite(led_on,LOW);                           //MANTÉM A LED INDICADOR DE ATIVAÇÃO DESATIVADA CASO O DISPOSITIVO NÃO TENHA SIDO ATIVADO COM O PRESSIONAMENTO DO BOTÃO
+}
+long calc_distanceCm(long pulse_calcCm){               //FUNÇÃO QUE RECEBE OS VALORES DA VARIÁVEL "pulse_signal" E RETORNA O CALCULO COM OS VALORES ARMAZENADOS NA VARIAVEL "distanceCm"
+  
+  float distanceCm = pulse_calcCm * SOUND_VELOCITY /2; //CALCULA OS VALORES ARMAZENADOS NA VARIAVEL pulse_calcCm COM O VALOR DA CONSTANTE SOUND_VELOCITY, PARA ENTREGAR O RESULTADO DE DISTANCIAMENTO DO OBJETO
+  Serial.print("Distancia do objeto : ");              //IMPRIME NA TELA "Distancia do objeto : "
+  Serial.print(distanceCm);                            //IMPRIME OS VALORES DO CALCULO ARMAZENADOS NA VARIAVEL "distanceCm"
+  Serial.println(" cm ");
+  return distanceCm;                                   //RETORNA OS VALORES CALCULADOS PARA A FUNÇÃO PRINCIPAL 
+}
